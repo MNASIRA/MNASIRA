@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ur">
+<head>
+  <meta charset="UTF-8" />
+  <title>Multi-File Reader & Text to Speech</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      font-family: 'Noto Nastaliq Urdu', Arial, sans-serif;
+      background: #f9f9f9;
+      max-width: 700px;
+      margin: auto;
+      padding: 20px;
+    }
+    textarea {
+      width: 100%;
+      height: 600px;
+      font-size: 16px;
+      direction: auto;
+      padding: 10px;
+      margin-top: 10px;
+      resize: vertical;
+    }
+    label {
+      font-size: 15px;
+      margin-top: 10px;
+      display: block;
+    }
+    input[type="range"], select, button {
+      width: 100%;
+      margin-top: 10px;
+      padding: 8px;
+      font-size: 16px;
+    }
+    #controls {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    #controls button {
+      flex: 1;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+
+<h3>Text Reader with File Upload & Translate</h3>
+
+<label>فائل اپلوڈ کریں (.txt, .docx, .pdf):</label>
+<input type="file" id="fileInput" accept=".txt,.pdf,.docx" />
+
+<label>فونٹ کا سائز:</label>
+<input type="range" id="fontSize" min="10" max="24" value="16" oninput="rateValue.innerText = this.value" />
+
+<textarea id="text" placeholder="یہاں پیراگراف لکھیں..."></textarea>
+
+<label>آواز منتخب کریں:</label>
+<select id="voiceSelect"><option>لوڈ ہو رہی ہے...</option></select>
+
+<label>رفتار (Speed): <span id="rateValue">1</span></label>
+<input type="range" id="rate" min="0.5" max="2" step="0.1" value="1" oninput="rateValue.innerText = this.value" />
+
+<div id="controls">
+  <button onclick="prevLine()">⟵ پچھلی</button>
+  <button onclick="togglePlayback()" id="playPauseBtn">▶️ چلائیں</button>
+  <button onclick="nextLine()">اگلی ⟶</button>
+</div>
+
+<label>Google Translate ہدف زبان:</label>
+<select id="targetLang">
+  <option value="en">English</option>
+  <option value="ur">Urdu</option>
+  <option value="hi">Hindi</option>
+  <option value="ar">Arabic</option>
+</select>
+<button onclick="openGoogleTranslate()">🌐 Translate</button>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
+<script>
+  const textarea = document.getElementById("text");
+  const voiceSelect = document.getElementById("voiceSelect");
+  const rateInput = document.getElementById("rate");
+  let voices = [], lines = [], currentLine = 0, speaking = false, paused = false, utterance;
+
+  function updateFontSize(size) {
+    textarea.style.fontSize = size + "px";
+  }
+
+  function loadVoices() {
+    voices = speechSynthesis.getVoices();
+    if (!voices.length) return setTimeout(loadVoices, 100);
+    voiceSelect.innerHTML = "";
+    voices.forEach((voice, i) => {
+      const option = document.createElement("option");
+      option.value = i;
+      option.textContent = `${voice.name} (${voice.lang})`;
+      voiceSelect.appendChild(option);
+    });
+  }
+
+  speechSynthesis.onvoiceschanged = loadVoices;
+  loadVoices();
+
+  function isRTL(text) {
+    return /[\u0600-\u06FF]/.test(text);
+  }
+
+  textarea.addEventListener("input", () => {
+    textarea.style.direction = isRTL(textarea.value) ? "rtl" : "ltr";
+  });
+
+  function selectVoice(text) {
+    const lang = isRTL(text) ? "ur" : "en";
+    return voices.find(v => v.lang.startsWith(lang)) || voices[0];
+  }
+
+  function speakLine(index) {
+    if (index < 0 || index >= lines.length) return;
+    speechSynthesis.cancel();
+    const text = lines[index];
+    utterance = new SpeechSynthesisUtterance(text);
+    const voice = selectVoice(text);
+    utterance.voice = voice;
+    utterance.lang = voice.lang;
+    utterance.rate = parseFloat(rateInput.value);
+    utterance.onend = () => {
+      speaking = false;
+      currentLine++;
+      if (!paused && currentLine < lines.length) speakLine(currentLine);
+    };
+    speechSynthesis.speak(utterance);
+    speaking = true;
+  }
+
+  function togglePlayback() {
+    if (!speaking) {
+      lines = textarea.value.trim().split(/\r?\n/).filter(Boolean);
+      if (!lines.length) return alert("کوئی متن نہیں ہے۔");
+      paused = false;
+      speakLine(currentLine);
+      document.getElementById("playPauseBtn").textContent = "⏸ روکیں";
+    } else {
+      speechSynthesis.cancel();
+      paused = true;
+      speaking = false;
+      document.getElementById("playPauseBtn").textContent = "▶️ چلائیں";
+    }
+  }
+
+  function nextLine() {
+    speechSynthesis.cancel();
+    paused = true;
+    currentLine = Math.min(lines.length - 1, currentLine + 1);
+    speakLine(currentLine);
+  }
+
+  function prevLine() {
+    speechSynthesis.cancel();
+    paused = true;
+    currentLine = Math.max(0, currentLine - 1);
+    speakLine(currentLine);
+  }
+
+  function openGoogleTranslate() {
+    const text = encodeURIComponent(textarea.value.trim());
+    const target = document.getElementById("targetLang").value;
+    if (!text) return alert("متن خالی ہے۔");
+    const url = `https://translate.google.com/?sl=auto&tl=${target}&text=${text}&op=translate`;
+    window.open(url, "_blank");
+  }
+
+  document.getElementById("fileInput").addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    if (ext === "txt") {
+      reader.onload = () => textarea.value = reader.result;
+      reader.readAsText(file);
+    } else if (ext === "pdf") {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let text = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map(i => i.str).join(' ') + '\n';
+      }
+      textarea.value = text;
+    } else if (ext === "docx") {
+      reader.onload = async () => {
+        const result = await mammoth.extractRawText({ arrayBuffer: reader.result });
+        textarea.value = result.value;
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      alert("صرف txt, pdf, docx فائلز سپورٹڈ ہیں۔");
+    }
+  });
+</script>
+
+</body>
+</html>
